@@ -2,7 +2,7 @@
 
 ---
 
-###Dependencies:
+### Dependencies:
 
         jq
 
@@ -10,7 +10,7 @@ install using something like:
 
         sudo apt install jq
 
-###Configuration:
+### Configuration:
 
         add **.api_keys.sh** file to your $HOME directory
 
