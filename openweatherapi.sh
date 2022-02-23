@@ -88,10 +88,13 @@ C_DATA="${C_DATA},${CW_DIR},${CW_DESC}"
 ##-------------------------------------------------------------------------------
 
 jq -r '.[0:6] [] | [.dt, .temp, .weather[].description, .wind_speed, .pop,
-    .humidity, .uvi, .pressure] | @csv' hourly_weather.json  \
+    .humidity, .uvi, .pressure, .clouds,
+    if(.rain | length)>0 then .rain else 0 end ] | @csv' hourly_weather.json  \
         | awk 'BEGIN{FS=","; OFS=","} {
-            $1=strftime("%H:%M", $1);
             gsub(/"/, "");
+            $1=strftime("%H:%M", $1);
+            $4=$4*3.6;
+            $5=$5*100;
             print }' > table.csv
 
 ##-------------------------------------------------------------------------------
@@ -110,6 +113,9 @@ jq '.[] | [.dt, .sunrise, .sunset, .moonrise, .moonset, .moon_phase, .temp.day,
             $3=strftime("%H:%M", $3);
             $4=strftime("%H:%M", $4);
             $5=strftime("%H:%M", $5);
+            $16=$16*3.6;
+            $18=$18*3.6;
+            $24=$24*100;
         print}' > daily.csv
 
 ##-------------------------------------------------------------------------------
@@ -128,17 +134,18 @@ echo $C_DATA | awk 'BEGIN{FS=","; printf "OPEN WEATHER MAP API\n"}{
     printf "\nNow %s\n", $1;
     printf "%.f°C In %s, %s\n", $2, $16, $17;
     printf "Feels like %.0f°C with %s and %s\n", $13, $3, $20
-    printf "Wind: %.1fkm/h %s\t Humidity: %.0f%%\n", $4, $19, $6
+    printf "Wind:%4.1fkm/h %3s\t Humidity: %2.0f%%\n", $4, $19, $6
     printf "Pressure: %4.0fhPa\t Dew Point: %.0f°C\n", $5, $7
     printf "UV: %.1f \t\t Visibility: %.1fkm\n\n", $9, $8
 }'
 
 # Hourly Table
-column -t -s"," -N Time,Temp,Description,Wind,POP,Hum,UV,Pres table.csv
+column -t -s"," -N Time,Temp,Description,Wind,POP,Hum,UV,Pres,Cloud,Rain table.csv
 printf "\n"
 
 # Daily Table
-cut -d "," -f "1 8 9 14 16 21 23 24 25 26" daily.csv | column -t -s","
+cut -d "," -f "1 8 9 14 16 21 23 24 25 26" daily.csv |\
+    column -t -s"," -N Day,Min,Max,Hum,Wind,Desc,Cloud,POP,UVI,Rain
 printf "\n"
 
 # Alerts
