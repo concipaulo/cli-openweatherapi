@@ -1,3 +1,5 @@
 *.json
 *.csv
 *.txt
+ansi_colors
+colors.sh
