@@ -11,8 +11,101 @@ URL_ONE_CALL=https\:\/\/api.openweathermap.org\/data\/2.5\/onecall\?lat=${LAT}\&
 URL_REV_GEOCODE=http\:\/\/api.openweathermap.org\/geo\/1.0\/reverse\?lat=${LAT}\&lon=${LON}\&limit=1\&appid=${OWM_API_KEY}
 
 ##-------------------------------------------------------------------------------
-## Parsing flags
+## Functions
 ##-------------------------------------------------------------------------------
+
+wind_direction(){
+    W_DIR=$(awk -v wind="$1" 'BEGIN{FS = ","} {
+        if(wind>$2 && wind<=$3) print $1}' wind_direction_metereological.csv)
+    echo $W_DIR
+}
+
+beaufort(){
+    W_DESC=$(awk -v speed="$1" 'BEGIN{FS=","}{
+        if(speed<$3 && speed>=$2) print $1}' beaufort_scale.csv)
+    echo $W_DESC
+}
+
+usage() {
+        echo "Usage: $(basename $0) [-abch]" 2>&1
+        echo "When called with no option it prints values" \
+             " to STDOUT with defaults attributes"
+        echo
+        echo '   -a   shows alerts in the output'
+        echo '   -b   shows b in the output'
+        echo '   -c   shows c in the output'
+        echo '   -h   shows this screen and exit'
+        exit 1
+}
+
+##------------------------------------------------------------------------------
+## Parsing flags
+##------------------------------------------------------------------------------
+
+# BOILER PLATE;
+# code from getopt-parse.bash at /usr/share/doc/util-linux/examples/
+
+TEMP=$(getopt -o 'ab:c::' --long 'alerts,b-long:,c-long::'\
+        -n 'openweatherapi.sh' -- "$@")
+
+if [ $? -ne 0 ]; then
+	echo 'Terminating...' >&2
+	exit 1
+fi
+
+# Note the quotes around "$TEMP": they are essential!
+eval set -- "$TEMP"
+unset TEMP
+
+while true; do
+	case "$1" in
+		'-a'|'--alerts')
+			aflag=1
+			shift
+			continue
+		;;
+		'-b'|'--b-long')
+			echo "Option b, argument '$2'"
+			shift 2
+			continue
+		;;
+		'-c'|'--c-long')
+			# c has an optional argument. As we are in quoted mode,
+			# an empty parameter will be generated if its optional
+			# argument is not found.
+			case "$2" in
+				'')
+					echo 'Option c, no argument'
+				;;
+				*)
+					echo "Option c, argument '$2'"
+				;;
+			esac
+			shift 2
+			continue
+		;;
+		'--')
+			shift
+			break
+		;;
+		*)
+			echo 'Internal error!' >&2
+			exit 1
+		;;
+	esac
+done
+
+echo 'Remaining arguments:'
+for arg; do
+	echo "--> '$arg'"
+done
+
+#-------------------------------------------------------------------------------
+
+# Checking if no parameters were passed
+# if [[ ${#} -eq 0 ]]; then
+#    usage
+# fi
 
 ##-------------------------------------------------------------------------------
 ## API Call
@@ -56,22 +149,6 @@ C_WEATHER=$(jq -r ' [.dt, .temp, .weather[].description, .wind_speed, .pressure,
 C_DATA="${C_WEATHER},${NAME_CITY}"
 
 ##-------------------------------------------------------------------------------
-## Functions
-##-------------------------------------------------------------------------------
-
-wind_direction(){
-    W_DIR=$(awk -v wind="$1" 'BEGIN{FS = ","} {
-        if(wind>$2 && wind<=$3) print $1}' wind_direction_metereological.csv)
-    echo $W_DIR
-}
-
-beaufort(){
-    W_DESC=$(awk -v speed="$1" 'BEGIN{FS=","}{
-        if(speed<$3 && speed>=$2) print $1}' beaufort_scale.csv)
-    echo $W_DESC
-}
-
-##-------------------------------------------------------------------------------
 
 CURRENT_WIND_DEG=$(echo $C_WEATHER | awk 'BEGIN{FS=","}{print $11}')
 
@@ -89,7 +166,7 @@ C_DATA="${C_DATA},${CW_DIR},${CW_DESC}"
 
 jq -r '.[0:6] [] | [.dt, .temp, .weather[].description, .wind_speed, .pop,
     .humidity, .uvi, .pressure, .clouds,
-    if(.rain | length)>0 then .rain else 0 end ] | @csv' hourly_weather.json  \
+    if(.rain."1h" | length)>0 then .rain."1h" else 0 end ] | @csv' hourly_weather.json  \
         | awk 'BEGIN{FS=","; OFS=","} {
             gsub(/"/, "");
             $1=strftime("%H:%M", $1);
@@ -97,6 +174,17 @@ jq -r '.[0:6] [] | [.dt, .temp, .weather[].description, .wind_speed, .pop,
             $5=$5*100;
             print }' > table.csv
 
+
+jq -r '.[] | [.dt, .temp, .weather[].description, .wind_speed, .pop,
+    .humidity, .uvi, .pressure, .clouds,
+    if(.rain."1h" | length)>0 then .rain."1h" else 0 end ] | @csv' hourly_weather.json  \
+        | awk 'BEGIN{FS=","; OFS=",";
+            print "Day,Temp,Desc,Wind,POP,Hum,UVI,Pres,Cloud,Rain"} {
+                gsub(/"/, "");
+                $1=strftime("%a-%d %H:%M", $1);
+                $4=$4*3.6;
+                $5=$5*100;
+                print }' > table_complete.csv
 ##-------------------------------------------------------------------------------
 ## Daily data
 ##-------------------------------------------------------------------------------
@@ -125,6 +213,15 @@ jq '.[] | [.dt, .sunrise, .sunset, .moonrise, .moonset, .moon_phase, .temp.day,
 ALERT_NAME=$(cat onecall_response.json | jq 'try .alerts[].event ')
 ALERT_DESC=$(cat onecall_response.json | jq 'try .alerts[].description')
 
+jq -r 'try .alerts[] | flatten | @tsv' onecall_response.json | \
+    awk 'BEGIN{FS= "\t"; OFS= "\t" ; ORS = "\r\n"} {
+        gsub(/"/, "");
+        $3=strftime("%b-%d %H:%M", $3);
+        $4=strftime("%b-%d %H:%M", $4);
+        gsub(/\\?"/, "");
+        print}' > alerts.tsv
+
+
 ##-------------------------------------------------------------------------------
 ## Printing
 ##-------------------------------------------------------------------------------
@@ -140,18 +237,22 @@ echo $C_DATA | awk 'BEGIN{FS=","; printf "OPEN WEATHER MAP API\n"}{
 }'
 
 # Hourly Table
+printf "Next hours:\n"
 column -t -s"," -N Time,Temp,Description,Wind,POP,Hum,UV,Pres,Cloud,Rain table.csv
 printf "\n"
 
 # Daily Table
+printf "Next days:\n"
 cut -d "," -f "1 8 9 14 16 21 23 24 25 26" daily.csv |\
     column -t -s"," -N Day,Min,Max,Hum,Wind,Desc,Cloud,POP,UVI,Rain
 printf "\n"
 
 # Alerts
-if [[ -n $ALERT_NAME ]]
+if [[ ( -n $ALERT_NAME && $aflag -eq 1 ) ]]
     then
-        printf "ALERTS:\n"
-        printf "Event: %s\n" "$ALERT_NAME"
-        printf "Description: %s\n" "$ALERT_DESC"
+        awk 'BEGIN{FS="\t"; print "ALERTS"}{
+            printf "Event: %s\n", $2
+            printf "From: %s to %s\n", $3, $4
+            printf "Description: %s\n", $5
+        }' alerts.tsv
 fi
