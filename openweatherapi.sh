@@ -16,13 +16,13 @@ URL_REV_GEOCODE=http\:\/\/api.openweathermap.org\/geo\/1.0\/reverse\?lat=${LAT}\
 
 wind_direction(){
     W_DIR=$(awk -v wind="$1" 'BEGIN{FS = ","} {
-        if(wind>$2 && wind<=$3) print $1}' wind_direction_metereological.csv)
+        if(wind>$2 && wind<=$3) print $1}' 20-metereological_wind_direction)
     echo $W_DIR
 }
 
 beaufort(){
     W_DESC=$(awk -v speed="$1" 'BEGIN{FS=","}{
-        if(speed<$3 && speed>=$2) print $1}' beaufort_scale.csv)
+        if(speed<$3 && speed>=$2) print $1}' 30-beaufort_scale)
     echo $W_DESC
 }
 
@@ -31,10 +31,10 @@ usage() {
         echo "When called with no option it prints values" \
              " to STDOUT with defaults attributes"
         echo
-        echo '   -a   shows alerts in the output'
-        echo '   -b   shows b in the output'
-        echo '   -c   shows c in the output'
-        echo '   -h   shows this screen and exit'
+        echo '   -a                 shows alerts in the output'
+        echo '   -d[N] | --days     shows N days in the output'
+        echo '   -h[N] | --hours    shows N hours in the output'
+        echo '   --help     shows this screen and exit'
         exit 1
 }
 
@@ -44,10 +44,13 @@ usage() {
 
 # BOILER PLATE;
 # code from getopt-parse.bash at /usr/share/doc/util-linux/examples/
-
-TEMP=$(getopt -o 'ab:c::' --long 'alerts,b-long:,c-long::'\
+# string after -o are the single letter arguments, --long defines the multi
+# letters options -n is the name of the program to append the error and
+# "$@" is the string of args, MUST be enclosed by double quotes
+TEMP=$(getopt -o 'ad:h:c::' --long 'alerts,days:,help,hours:,c-long::'\
         -n 'openweatherapi.sh' -- "$@")
 
+# If last command wasn't sucessful exit
 if [ $? -ne 0 ]; then
 	echo 'Terminating...' >&2
 	exit 1
@@ -64,8 +67,19 @@ while true; do
 			shift
 			continue
 		;;
-		'-b'|'--b-long')
-			echo "Option b, argument '$2'"
+		'-d'|'--days')
+            DAYS_NBR=$2
+			shift 2
+			continue
+		;;
+        # help will exit on function usage with flag 1
+		'--help')
+            usage
+			shift
+			continue
+		;;
+		'-h'|'--hours')
+            HOURS_NBR=$2
 			shift 2
 			continue
 		;;
@@ -95,13 +109,24 @@ while true; do
 	esac
 done
 
-echo 'Remaining arguments:'
-for arg; do
-	echo "--> '$arg'"
-done
+# Arguments that were unable to be parsed
+# echo 'Unknown arguments:'
+# for arg; do
+#     echo "--> '$arg'"
+# done
 
 #-------------------------------------------------------------------------------
+# DEFAULTS
+#-------------------------------------------------------------------------------
 
+if ( [ -z $DAYS_NBR ] || [ $DAYS_NBR -gt 8 ] ) then
+    DAYS_NBR=8
+fi
+
+if ( [ -z $HOURS_NBR ] || [ $HOURS_NBR -gt 48 ] ) then
+    HOURS_NBR=6
+fi
+#
 # Checking if no parameters were passed
 # if [[ ${#} -eq 0 ]]; then
 #    usage
@@ -164,54 +189,67 @@ C_DATA="${C_DATA},${CW_DIR},${CW_DESC}"
 ## Hourly data
 ##-------------------------------------------------------------------------------
 
-jq -r '.[0:6] [] | [.dt, .temp, .weather[].description, .wind_speed, .pop,
-    .humidity, .uvi, .pressure, .clouds,
-    if(.rain."1h" | length)>0 then .rain."1h" else 0 end ] | @csv' hourly_weather.json  \
-        | awk 'BEGIN{FS=","; OFS=","} {
-            gsub(/"/, "");
-            $1=strftime("%H:%M", $1);
-            $4=$4*3.6;
-            $5=$5*100;
-            print }' > table.csv
-
-
-jq -r '.[] | [.dt, .temp, .weather[].description, .wind_speed, .pop,
-    .humidity, .uvi, .pressure, .clouds,
+jq -r '.[] | [.dt, .temp, .weather[].description, .wind_speed,
+    .humidity, .uvi, .pressure, .clouds, .pop,
     if(.rain."1h" | length)>0 then .rain."1h" else 0 end ] | @csv' hourly_weather.json  \
         | awk 'BEGIN{FS=","; OFS=",";
-            print "Day,Temp,Desc,Wind,POP,Hum,UVI,Pres,Cloud,Rain"} {
+           # print "Day,Temp,Desc,Wind,POP,Hum,UVI,Pres,Cloud,Rain"
+        } {
                 gsub(/"/, "");
                 $1=strftime("%a-%d %H:%M", $1);
                 $4=$4*3.6;
-                $5=$5*100;
+                $9=$9*100;
                 print }' > table_complete.csv
+
 ##-------------------------------------------------------------------------------
 ## Daily data
 ##-------------------------------------------------------------------------------
 
-jq '.[] | [.dt, .sunrise, .sunset, .moonrise, .moonset, .moon_phase, .temp.day,
-    .temp.min, .temp.max, .temp.night, .temp.eve, .temp.morn, .pressure,
-    .humidity, .dew_point, .wind_speed, .wind_deg, .wind_gust, .weather[].id,
-    .weather[].main, .weather[].description, .weather[].icon, .clouds, .pop,
-    .uvi, if(.rain | length)>0 then .rain else 0 end ] | @csv ' daily_weather.json \
+jq '.[] | [
+    .dt,
+    .temp.max,
+    .temp.min,
+    .weather[].description,
+    .wind_speed,
+    .humidity,
+    .uvi,
+    .pressure,
+    .clouds,
+    .pop,
+    if(.rain | length)>0 then .rain else 0 end,
+    .sunrise,
+    .sunset,
+    .moonrise,
+    .moonset,
+    .moon_phase,
+    .temp.day,
+    .temp.night,
+    .temp.eve,
+    .temp.morn,
+    .dew_point,
+    .wind_deg,
+    .wind_gust,
+    .weather[].id,
+    .weather[].main,
+    .weather[].icon
+     ] | @csv ' daily_weather.json \
         | awk 'BEGIN{FS = ","; OFS = ","}{
-            gsub(/\\?"/, "");
-            $1=strftime("%a-%b-%d", $1);
-            $2=strftime("%H:%M", $2);
-            $3=strftime("%H:%M", $3);
-            $4=strftime("%H:%M", $4);
-            $5=strftime("%H:%M", $5);
-            $16=$16*3.6;
-            $18=$18*3.6;
-            $24=$24*100;
-        print}' > daily.csv
+                gsub(/\\?"/, "");
+                $1=strftime("%a-%d", $1);
+                $5=$5*3.6;
+                $10=$10*100;
+                $12=strftime("%H:%M", $12);
+                $13=strftime("%H:%M", $13);
+                $14=strftime("%H:%M", $14);
+                $15=strftime("%H:%M", $15);
+                $23=$23*3.6;
+        print}' > daily_complete.csv
 
 ##-------------------------------------------------------------------------------
 ## Alerts
 ##-------------------------------------------------------------------------------
 
-ALERT_NAME=$(cat onecall_response.json | jq 'try .alerts[].event ')
-ALERT_DESC=$(cat onecall_response.json | jq 'try .alerts[].description')
+ALERT_NAME=$(jq 'try .alerts[].event' onecall_response.json)
 
 jq -r 'try .alerts[] | flatten | @tsv' onecall_response.json | \
     awk 'BEGIN{FS= "\t"; OFS= "\t" ; ORS = "\r\n"} {
@@ -237,14 +275,16 @@ echo $C_DATA | awk 'BEGIN{FS=","; printf "OPEN WEATHER MAP API\n"}{
 }'
 
 # Hourly Table
-printf "Next hours:\n"
-column -t -s"," -N Time,Temp,Description,Wind,POP,Hum,UV,Pres,Cloud,Rain table.csv
+printf "Next $HOURS_NBR hours:\n"
+head -n $HOURS_NBR table_complete.csv | column -t -s"," -N Time,Temp,Desc,Wind,Hum,UVI,Pres,Cloud,POP,Rain
+
 printf "\n"
 
 # Daily Table
-printf "Next days:\n"
-cut -d "," -f "1 8 9 14 16 21 23 24 25 26" daily.csv |\
-    column -t -s"," -N Day,Min,Max,Hum,Wind,Desc,Cloud,POP,UVI,Rain
+printf "Next $DAYS_NBR days:\n"
+cut -d, -f '1-11' daily_complete.csv |\
+    head -n $DAYS_NBR |\
+    column -t -s"," -N Day,Max,Min,Desc,Wind,Hum,UVI,Pres,Cloud,POP,Rain
 printf "\n"
 
 # Alerts
