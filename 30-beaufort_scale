@@ -1,0 +1,13 @@
+calm,0,1
+light air,1,6
+light breeze,6,12
+gentle breeze,12,20
+moderate breeze,20,29
+fresh breeze,29,39
+strong breeze,39,50
+near gale,50,62
+gale,62,75
+strong gale,75,89
+storm,89,103
+violent storm,103,118
+hurricane,118,999

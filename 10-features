@@ -1,0 +1,4 @@
+-a                 shows alerts in the output'
+-d[N] | --days     shows N days in the output'
+-h[N] | --hours    shows N hours in the output'
+--help             shows this screen and exit'

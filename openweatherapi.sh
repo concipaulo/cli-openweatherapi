@@ -34,7 +34,7 @@ usage() {
         echo '   -a                 shows alerts in the output'
         echo '   -d[N] | --days     shows N days in the output'
         echo '   -h[N] | --hours    shows N hours in the output'
-        echo '   --help     shows this screen and exit'
+        echo '   --help             shows this screen and exit'
         exit 1
 }
 
