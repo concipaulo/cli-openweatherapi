@@ -6,6 +6,7 @@
 source ${HOME}/.api_keys.sh
 LANG=en_us
 
+#TODO break this loooong lines
 URL_ONE_CALL=https\:\/\/api.openweathermap.org\/data\/2.5\/onecall\?lat=${LAT}\&lon=${LON}\&units=metric\&lang=${LANG}\&appid=${OWM_API_KEY}
 
 URL_REV_GEOCODE=http\:\/\/api.openweathermap.org\/geo\/1.0\/reverse\?lat=${LAT}\&lon=${LON}\&limit=1\&appid=${OWM_API_KEY}
@@ -14,14 +15,43 @@ URL_REV_GEOCODE=http\:\/\/api.openweathermap.org\/geo\/1.0\/reverse\?lat=${LAT}\
 ## Functions
 ##-------------------------------------------------------------------------------
 
+# this function accepts inputs from stdin and positional args
 wind_direction(){
-    W_DIR=$(awk -v wind="$1" 'BEGIN{FS = ","} {
+
+    local input=""
+
+    if [[ -p /dev/stdin ]]; then
+        input="$(cat -)"
+    else
+        input="${@}"
+    fi
+
+    if [[ -z "${input}" ]]; then
+        return 1
+    fi
+
+    W_DIR=$(awk -v wind="$input" 'BEGIN{FS = ","} {
         if(wind>$2 && wind<=$3) print $1}' 20-metereological_wind_direction)
     echo $W_DIR
+
 }
 
+# this function accepts inputs from stdin and positional args
 beaufort(){
-    W_DESC=$(awk -v speed="$1" 'BEGIN{FS=","}{
+
+    local input=""
+
+    if [[ -p /dev/stdin ]]; then
+        input="$(cat -)"
+    else
+        input="${@}"
+    fi
+
+    if [[ -z "${input}" ]]; then
+        return 1
+    fi
+
+    W_DESC=$(awk -v speed="$input" 'BEGIN{FS=","}{
         if(speed<$3 && speed>=$2) print $1}' 30-beaufort_scale)
     echo $W_DESC
 }
@@ -140,7 +170,8 @@ fi
 curl -s $URL_ONE_CALL > onecall_response.json
 
 # Calling geocode api
-curl -s $URL_REV_GEOCODE > geocode.json
+#TODO fix these two calls
+# curl -s $URL_REV_GEOCODE > geocode.json
 GEOCODE_JSON_RESP=$(curl -s $URL_REV_GEOCODE)
 
 ##-------------------------------------------------------------------------------
@@ -151,37 +182,48 @@ GEOCODE_JSON_RESP=$(curl -s $URL_REV_GEOCODE)
 jq '.current' onecall_response.json > current_weather.json
 jq ' .daily' onecall_response.json > daily_weather.json
 jq ' .hourly' onecall_response.json > hourly_weather.json
+jq ' .minutely' onecall_response.json > minutely_weather.json
 
 NAME_CITY=$(echo $GEOCODE_JSON_RESP | jq -r '[ .[].name, .[].country,
         .[].state ] |  @csv' | awk 'BEGIN{FS=","}{ gsub(/"/, "" ); print}')
 
 ##-------------------------------------------------------------------------------
-## Current weather
+## Current data
 ##-------------------------------------------------------------------------------
 
-C_WEATHER=$(jq -r ' [.dt, .temp, .weather[].description, .wind_speed, .pressure, .humidity,
-    .dew_point, .visibility, .uvi, .clouds, .wind_deg, .wind_gust, .feels_like,
-    .sunrise, .sunset] | @csv' current_weather.json \
-    | awk 'BEGIN{FS=","; OFS=","} {
-        $1=strftime("%a %b %d at %T", $1);
-        $4=$4*3.6;
-        $8=$8/1000;
-        $14=strftime("%H:%M", $14);
-        $15=strftime("%H:%M", $15);
-        gsub(/"/, "", $3);
-        print }')
+C_WEATHER=$(jq -r ' [.dt,
+            .temp,
+            .weather[].description,
+            .wind_speed,
+            .pressure,
+            .humidity,
+            .dew_point,
+            .visibility,
+            .uvi,
+            .clouds,
+            .wind_deg,
+            .wind_gust,
+            .feels_like,
+            .sunrise,
+            .sunset] | @csv' current_weather.json \
+                | awk 'BEGIN{FS=","; OFS=","} {
+                    $1=strftime("%a %b %d at %T", $1);
+                    $4=$4*3.6;
+                    $8=$8/1000;
+                    $14=strftime("%H:%M", $14);
+                    $15=strftime("%H:%M", $15);
+                    gsub(/"/, "", $3);
+                    print
+                }'
+)
 
 C_DATA="${C_WEATHER},${NAME_CITY}"
 
 ##-------------------------------------------------------------------------------
 
-CURRENT_WIND_DEG=$(echo $C_WEATHER | awk 'BEGIN{FS=","}{print $11}')
+CW_DIR=$(echo $C_WEATHER | awk 'BEGIN{FS=","}{print $11}' | wind_direction )
 
-CW_DIR=$(wind_direction "$CURRENT_WIND_DEG")
-
-CURRENT_WIND_SPEED=$(echo $C_WEATHER | awk 'BEGIN{FS=","}{print $4}')
-
-CW_DESC=$(beaufort "$CURRENT_WIND_SPEED")
+CW_DESC=$(echo $C_WEATHER | awk 'BEGIN{FS=","}{print $4}' | beaufort )
 
 C_DATA="${C_DATA},${CW_DIR},${CW_DESC}"
 
@@ -191,7 +233,8 @@ C_DATA="${C_DATA},${CW_DIR},${CW_DESC}"
 
 jq -r '.[] | [.dt, .temp, .weather[].description, .wind_speed,
     .humidity, .uvi, .pressure, .clouds, .pop,
-    if(.rain."1h" | length)>0 then .rain."1h" else 0 end ] | @csv' hourly_weather.json  \
+    if(.rain."1h" | length)>0 then .rain."1h" else 0 end ] | @csv'\
+        hourly_weather.json  \
         | awk 'BEGIN{FS=","; OFS=",";
            # print "Day,Temp,Desc,Wind,POP,Hum,UVI,Pres,Cloud,Rain"
         } {
@@ -246,10 +289,17 @@ jq '.[] | [
         print}' > daily_complete.csv
 
 ##-------------------------------------------------------------------------------
-## Alerts
+## Minutely data
 ##-------------------------------------------------------------------------------
 
-ALERT_NAME=$(jq 'try .alerts[].event' onecall_response.json)
+jq -r '.[] | [ .dt, .precipitation] | @csv' minutely_weather.json \
+    | awk 'BEGIN{FS = "," ; OFS = "," }{
+        $1=strftime("%H:%M", $1);
+        print}' > minutely.csv
+
+##-------------------------------------------------------------------------------
+## Alerts
+##-------------------------------------------------------------------------------
 
 jq -r 'try .alerts[] | flatten | @tsv' onecall_response.json | \
     awk 'BEGIN{FS= "\t"; OFS= "\t" ; ORS = "\r\n"} {
@@ -258,7 +308,6 @@ jq -r 'try .alerts[] | flatten | @tsv' onecall_response.json | \
         $4=strftime("%b-%d %H:%M", $4);
         gsub(/\\?"/, "");
         print}' > alerts.tsv
-
 
 ##-------------------------------------------------------------------------------
 ## Printing
@@ -276,7 +325,8 @@ echo $C_DATA | awk 'BEGIN{FS=","; printf "OPEN WEATHER MAP API\n"}{
 
 # Hourly Table
 printf "Next $HOURS_NBR hours:\n"
-head -n $HOURS_NBR table_complete.csv | column -t -s"," -N Time,Temp,Desc,Wind,Hum,UVI,Pres,Cloud,POP,Rain
+head -n $HOURS_NBR table_complete.csv \
+    | column -t -s"," -N Time,Temp,Desc,Wind,Hum,UVI,Pres,Cloud,POP,Rain
 
 printf "\n"
 
@@ -288,7 +338,7 @@ cut -d, -f '1-11' daily_complete.csv |\
 printf "\n"
 
 # Alerts
-if [[ ( -n $ALERT_NAME && $aflag -eq 1 ) ]]
+if [[ ( -s alerts.tsv && $aflag -eq 1 ) ]]
     then
         awk 'BEGIN{FS="\t"; print "ALERTS"}{
             printf "Event: %s\n", $2
@@ -296,3 +346,5 @@ if [[ ( -n $ALERT_NAME && $aflag -eq 1 ) ]]
             printf "Description: %s\n", $5
         }' alerts.tsv
 fi
+
+#-------------------------------------------------------------------------------
