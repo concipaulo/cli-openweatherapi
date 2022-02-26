@@ -170,8 +170,6 @@ fi
 curl -s $URL_ONE_CALL > onecall_response.json
 
 # Calling geocode api
-#TODO fix these two calls
-# curl -s $URL_REV_GEOCODE > geocode.json
 GEOCODE_JSON_RESP=$(curl -s $URL_REV_GEOCODE)
 
 ##-------------------------------------------------------------------------------
